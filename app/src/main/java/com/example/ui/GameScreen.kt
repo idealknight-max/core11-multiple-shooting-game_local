@@ -25,31 +25,30 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Adjust
+import androidx.compose.material.icons.filled.Cached
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.FilterCenterFocus
+import androidx.compose.material.icons.filled.North
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.South
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.game.GameViewModel
@@ -62,12 +61,10 @@ import com.example.ui.theme.AmberGold
 import com.example.ui.theme.CrimsonRed
 import com.example.ui.theme.DamageOverlayRed
 import com.example.ui.theme.NeonCyan
-import com.example.ui.theme.PlasmaPurple
 import com.example.ui.theme.TacticalBorder
 import com.example.ui.theme.TacticalDark
 import com.example.ui.theme.TacticalSurface
 import com.example.ui.theme.ToxicGreen
-import kotlinx.coroutines.delay
 
 @Composable
 fun GameScreen(
@@ -88,55 +85,47 @@ fun GameScreen(
     val pingMs by viewModel.networkManager.pingMs.collectAsState()
     val isMultiplayer by viewModel.isMultiplayer.collectAsState()
 
-    val textMeasurer = rememberTextMeasurer()
-    var gameTimeSec by remember { mutableFloatStateOf(0f) }
-
-    // Frame timer
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(16)
-            gameTimeSec += 0.016f
-        }
-    }
-
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // 1. 3D Raycasting Canvas
-        val otherEnemies = mutableListOf<Player>()
-        remotePlayer?.let { otherEnemies.add(it) }
-        otherEnemies.addAll(bots)
+        // Collect enemies list without per-frame recomposition
+        val otherEnemies = ArrayList<Player>(4).apply {
+            remotePlayer?.let { add(it) }
+            addAll(bots)
+        }
 
+        // 1. FAST 3D RAYCASTING CANVAS (Using system time inside draw loop for 60fps smoothness)
         Canvas(modifier = Modifier.fillMaxSize()) {
+            val gameTimeSec = (System.currentTimeMillis() % 1000000L) / 1000f
             viewModel.raycaster.renderScene(
                 drawScope = this,
                 player = localPlayer,
                 otherPlayers = otherEnemies,
                 loots = loots,
-                textMeasurer = textMeasurer,
                 gameTimeSec = gameTimeSec
             )
         }
 
-        // 2. First-Person 3D Weapon Model
+        // 2. FIRST-PERSON REAL 3D WEAPON MODEL
         WeaponViewModel3D(
             weapon = localPlayer.weapon,
             isFiring = isMuzzleFlashing,
             recoilKick = gunKick,
             isReloading = localPlayer.isReloading,
+            isAimingDownSights = localPlayer.isAimingDownSights,
             modifier = Modifier.fillMaxSize()
         )
 
-        // 3. Screen Touch Drag Overlay for Camera Look (Right half of the screen)
+        // 3. FULL RIGHT-SCREEN CAMERA AIM TOUCH SURFACE
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
                     detectDragGestures(
                         onDrag = { change, dragAmount ->
-                            // If touch starts on the right side of screen, use it to look around
+                            // Look drag applies on the right 65% of screen
                             if (change.position.x > size.width * 0.35f) {
                                 change.consume()
                                 viewModel.addLookDelta(dragAmount.x)
@@ -146,16 +135,51 @@ fun GameScreen(
                 }
         )
 
-        // 4. Red Damage Flash Vignette when low health or hit
+        // 4. LOW-HEALTH VIGNETTE
         if (localPlayer.health < 30) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(DamageOverlayRed.copy(alpha = 0.25f))
+                    .background(DamageOverlayRed.copy(alpha = 0.28f))
             )
         }
 
-        // 5. Crosshair and Hitmarker (Screen Center)
+        // 5. SNIPER SCOPE OVERLAY (When Aiming Down Sights with AWP Sniper)
+        if (localPlayer.isAimingDownSights && localPlayer.weapon == WeaponType.SNIPER) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val scopeRadius = size.height * 0.44f
+
+                // Outer black scope vignette
+                drawCircle(
+                    color = Color(0xEE0A0C0E),
+                    radius = size.width,
+                    center = Offset(cx, cy),
+                    style = Stroke(width = size.width - scopeRadius * 2f)
+                )
+
+                // Scope crosshair lines
+                drawLine(Color(0xDDFF1744), Offset(cx - scopeRadius, cy), Offset(cx + scopeRadius, cy), 1.5f)
+                drawLine(Color(0xDDFF1744), Offset(cx, cy - scopeRadius), Offset(cx, cy + scopeRadius), 1.5f)
+
+                // Mil-dot distance hashes
+                for (d in listOf(-60f, -30f, 30f, 60f)) {
+                    drawLine(Color(0xDDFF1744), Offset(cx + d, cy - 6f), Offset(cx + d, cy + 6f), 1.5f)
+                    drawLine(Color(0xDDFF1744), Offset(cx - 6f, cy + d), Offset(cx + 6f, cy + d), 1.5f)
+                }
+
+                // Scope ring border
+                drawCircle(
+                    color = Color(0xFF263238),
+                    radius = scopeRadius,
+                    center = Offset(cx, cy),
+                    style = Stroke(width = 4f)
+                )
+            }
+        }
+
+        // 6. TACTICAL RETICLE & HITMARKER (Screen Center)
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -164,8 +188,8 @@ fun GameScreen(
                 val cx = size.width / 2f
                 val cy = size.height / 2f
                 val reticleColor = if (hitmarkerActive) CrimsonRed else Color(0xCC00E5FF)
-                val reticleGap = if (hitmarkerActive) 8f else 5f
-                val reticleLen = if (hitmarkerActive) 10f else 7f
+                val reticleGap = if (hitmarkerActive) 8f else if (localPlayer.isAimingDownSights) 3f else 6f
+                val reticleLen = if (hitmarkerActive) 10f else 6f
 
                 // Crosshair ticks
                 drawLine(reticleColor, Offset(cx - reticleGap - reticleLen, cy), Offset(cx - reticleGap, cy), 2f)
@@ -173,10 +197,10 @@ fun GameScreen(
                 drawLine(reticleColor, Offset(cx, cy - reticleGap - reticleLen), Offset(cx, cy - reticleGap), 2f)
                 drawLine(reticleColor, Offset(cx, cy + reticleGap), Offset(cx, cy + reticleGap + reticleLen), 2f)
 
-                // Center dot
+                // Center precision dot
                 drawCircle(reticleColor, radius = 2f, center = Offset(cx, cy))
 
-                // Hitmarker diagonal X when hitting target
+                // Hitmarker diagonal X when shot lands
                 if (hitmarkerActive) {
                     val hitLen = 9f
                     drawLine(CrimsonRed, Offset(cx - hitLen, cy - hitLen), Offset(cx - 3f, cy - 3f), 2.5f)
@@ -187,7 +211,7 @@ fun GameScreen(
             }
         }
 
-        // 6. TOP BAR HUD (Exit button, Killfeed, Room Status & Radar)
+        // 7. TOP BAR HUD (Exit, Kills, Network Indicator & Minimap Radar)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -195,7 +219,7 @@ fun GameScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top
         ) {
-            // Left: Exit Button & Killfeed
+            // Left: Exit & Killfeed
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
@@ -211,7 +235,6 @@ fun GameScreen(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    // Player Score
                     Box(
                         modifier = Modifier
                             .background(TacticalSurface.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
@@ -229,7 +252,6 @@ fun GameScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Killfeed notifications
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     killFeed.take(3).forEach { entry ->
                         Box(
@@ -292,18 +314,18 @@ fun GameScreen(
                 player = localPlayer,
                 otherPlayers = otherEnemies,
                 loots = loots,
-                size = 90.dp
+                size = 85.dp
             )
         }
 
-        // 7. LOOT PICKUP BANNER (Floating Center Alert)
+        // 8. LOOT PICKUP ALERT BANNER
         AnimatedVisibility(
             visible = lootAlert != null,
             enter = fadeIn() + slideInVertically(initialOffsetY = { -40 }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { -40 }),
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 70.dp)
+                .padding(top = 65.dp)
         ) {
             lootAlert?.let { alertText ->
                 Box(
@@ -315,18 +337,18 @@ fun GameScreen(
                     Text(
                         text = alertText,
                         color = Color.White,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
         }
 
-        // 8. BOTTOM CONTROLS & HUD
+        // 9. BOTTOM COMBAT CONTROLS (REAL MOBILE SHOOTER ICON CONTROLS)
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
+                .padding(14.dp),
             contentAlignment = Alignment.BottomCenter
         ) {
             Row(
@@ -334,14 +356,12 @@ fun GameScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Bottom
             ) {
-                // LEFT SIDE: Movement Virtual Joystick + Health/Armor Bars
+                // LEFT SIDE: Health/Armor Gauges + Movement Joystick + Crouch
                 Column {
-                    // Health & Armor Meters
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Health Bar (Red/Green)
                         MeterBar(
                             label = "${localPlayer.health} HP",
                             current = localPlayer.health,
@@ -350,7 +370,6 @@ fun GameScreen(
                             icon = Icons.Default.Favorite
                         )
 
-                        // Armor Bar (Cyan)
                         MeterBar(
                             label = "${localPlayer.armor} AP",
                             current = localPlayer.armor,
@@ -360,121 +379,123 @@ fun GameScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    // Virtual Movement Joystick
-                    VirtualJoystick(
-                        size = 135.dp,
-                        onMove = { x, y -> viewModel.setJoystickMovement(x, y) },
-                        modifier = Modifier.testTag("movement_joystick")
-                    )
-                }
-
-                // RIGHT SIDE: Weapon Selector, Ammo, Reload, and FIRE Button
-                Column(horizontalAlignment = Alignment.End) {
-                    // Quick Weapon Selector Row
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    ) {
-                        WeaponPill(
-                            weapon = WeaponType.RIFLE,
-                            isSelected = localPlayer.weapon == WeaponType.RIFLE,
-                            onClick = { viewModel.switchWeapon(WeaponType.RIFLE) }
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        VirtualJoystick(
+                            size = 125.dp,
+                            onMove = { x, y -> viewModel.setJoystickMovement(x, y) },
+                            modifier = Modifier.testTag("movement_joystick")
                         )
-                        WeaponPill(
-                            weapon = WeaponType.SHOTGUN,
-                            isSelected = localPlayer.weapon == WeaponType.SHOTGUN,
-                            onClick = { viewModel.switchWeapon(WeaponType.SHOTGUN) }
-                        )
-                        WeaponPill(
-                            weapon = WeaponType.PLASMA,
-                            isSelected = localPlayer.weapon == WeaponType.PLASMA,
-                            onClick = { viewModel.switchWeapon(WeaponType.PLASMA) }
-                        )
-                    }
-
-                    // Ammo Count & Reload Row
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(bottom = 10.dp)
-                    ) {
-                        // Reload Button
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(TacticalSurface.copy(alpha = 0.9f))
-                                .border(1.dp, TacticalBorder, RoundedCornerShape(8.dp))
-                                .clickable { viewModel.reloadWeapon() }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                                .testTag("reload_button")
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Refresh, contentDescription = "Reload", tint = AmberGold, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = if (localPlayer.isReloading) "RELOADING..." else "RELOAD",
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
 
                         Spacer(modifier = Modifier.width(8.dp))
 
-                        // Ammo readout
-                        Box(
-                            modifier = Modifier
-                                .background(TacticalDark.copy(alpha = 0.9f), RoundedCornerShape(8.dp))
-                                .border(1.dp, AmberGold, RoundedCornerShape(8.dp))
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                text = "${localPlayer.ammoInClip} / ${localPlayer.reserveAmmo}",
-                                color = AmberGold,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        }
+                        // Crouch Action Icon Button
+                        RoundCombatIconButton(
+                            icon = Icons.Default.South,
+                            label = "CROUCH",
+                            isActive = localPlayer.isCrouching,
+                            activeColor = AmberGold,
+                            size = 46.dp,
+                            onClick = { viewModel.toggleCrouch() },
+                            modifier = Modifier.testTag("crouch_button")
+                        )
+                    }
+                }
+
+                // CENTER-RIGHT: ACTIVE SINGLE WEAPON DISPLAY CARD
+                EquippedWeaponCard(
+                    weapon = localPlayer.weapon,
+                    ammoInClip = localPlayer.ammoInClip,
+                    reserveAmmo = localPlayer.reserveAmmo,
+                    isReloading = localPlayer.isReloading,
+                    onReloadClick = { viewModel.reloadWeapon() },
+                    modifier = Modifier.align(Alignment.Bottom)
+                )
+
+                // RIGHT SIDE: REAL SHOOTING CONTROLS (FIRE, SCOPE/ADS, RELOAD, JUMP)
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Top Row: Scope/ADS & Jump Icon Buttons
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        // Scope / ADS Icon Button
+                        RoundCombatIconButton(
+                            icon = Icons.Default.FilterCenterFocus,
+                            label = if (localPlayer.isAimingDownSights) "AIMED" else "SCOPE",
+                            isActive = localPlayer.isAimingDownSights,
+                            activeColor = NeonCyan,
+                            size = 54.dp,
+                            onClick = { viewModel.toggleAimDownSights() },
+                            modifier = Modifier.testTag("ads_button")
+                        )
+
+                        // Jump Icon Button
+                        RoundCombatIconButton(
+                            icon = Icons.Default.North,
+                            label = "JUMP",
+                            isActive = localPlayer.jumpOffset != 0f,
+                            activeColor = NeonCyan,
+                            size = 54.dp,
+                            onClick = { viewModel.jump() },
+                            modifier = Modifier.testTag("jump_button")
+                        )
                     }
 
-                    // LARGE ERGONOMIC FIRE BUTTON
-                    Box(
-                        modifier = Modifier
-                            .size(90.dp)
-                            .clip(CircleShape)
-                            .background(CrimsonRed.copy(alpha = 0.85f))
-                            .border(3.dp, Color.White.copy(alpha = 0.9f), CircleShape)
-                            .clickable { viewModel.fireWeapon() }
-                            .testTag("fire_button"),
-                        contentAlignment = Alignment.Center
+                    // Bottom Row: Reload Icon Button & LARGE PRIMARY FIRE BUTTON
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.FlashOn,
-                                contentDescription = "Fire",
-                                tint = Color.White,
-                                modifier = Modifier.size(34.dp)
-                            )
-                            Text(
-                                text = "FIRE",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Black
-                            )
+                        // Reload Action Icon Button
+                        RoundCombatIconButton(
+                            icon = Icons.Default.Cached,
+                            label = if (localPlayer.isReloading) "LOADING" else "RELOAD",
+                            isActive = localPlayer.isReloading,
+                            activeColor = AmberGold,
+                            size = 52.dp,
+                            onClick = { viewModel.reloadWeapon() },
+                            modifier = Modifier.testTag("reload_button")
+                        )
+
+                        // LARGE REAL PRIMARY FIRE ICON BUTTON (PUBG/COD Mobile Style)
+                        Box(
+                            modifier = Modifier
+                                .size(88.dp)
+                                .clip(CircleShape)
+                                .background(CrimsonRed.copy(alpha = 0.88f))
+                                .border(3.dp, Color.White.copy(alpha = 0.9f), CircleShape)
+                                .clickable { viewModel.fireWeapon() }
+                                .testTag("fire_button"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.Adjust,
+                                    contentDescription = "Fire Weapon",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(34.dp)
+                                )
+                                Text(
+                                    text = "FIRE",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
                         }
                     }
                 }
             }
         }
 
-        // 9. RESPAWN OVERLAY COUNTDOWN
+        // 10. RESPAWN COUNTDOWN OVERLAY
         if (respawnSeconds > 0) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xCC000000)),
+                    .background(Color(0xDD000000)),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -497,6 +518,108 @@ fun GameScreen(
     }
 }
 
+/**
+ * Real Mobile Shooting Game Icon Button (Circular tactical button)
+ */
+@Composable
+private fun RoundCombatIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    isActive: Boolean,
+    activeColor: Color,
+    size: androidx.compose.ui.unit.Dp,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(if (isActive) activeColor.copy(alpha = 0.35f) else TacticalSurface.copy(alpha = 0.88f))
+            .border(2.dp, if (isActive) activeColor else TacticalBorder, CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (isActive) activeColor else Color.White,
+                modifier = Modifier.size(size * 0.44f)
+            )
+            Text(
+                text = label,
+                color = if (isActive) activeColor else Color.LightGray,
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+/**
+ * Single Equipped Gun Display Card
+ */
+@Composable
+private fun EquippedWeaponCard(
+    weapon: WeaponType,
+    ammoInClip: Int,
+    reserveAmmo: Int,
+    isReloading: Boolean,
+    onReloadClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val weaponColor = Color(weapon.colorHex)
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(TacticalDark.copy(alpha = 0.92f))
+            .border(1.5.dp, weaponColor, RoundedCornerShape(12.dp))
+            .clickable(onClick = onReloadClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Column {
+                Text(
+                    text = weapon.displayName.uppercase(),
+                    color = weaponColor,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    text = weapon.description,
+                    color = Color.Gray,
+                    fontSize = 9.sp
+                )
+                Text(
+                    text = "Loot drops to swap",
+                    color = AmberGold.copy(alpha = 0.8f),
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .background(TacticalSurface, RoundedCornerShape(8.dp))
+                    .border(1.dp, TacticalBorder, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = if (isReloading) "RELOAD..." else "$ammoInClip / $reserveAmmo",
+                    color = if (ammoInClip <= 3) CrimsonRed else Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun MeterBar(
     label: String,
@@ -509,7 +632,7 @@ private fun MeterBar(
 
     Box(
         modifier = Modifier
-            .width(115.dp)
+            .width(110.dp)
             .background(TacticalSurface.copy(alpha = 0.9f), RoundedCornerShape(8.dp))
             .border(1.dp, TacticalBorder, RoundedCornerShape(8.dp))
             .padding(6.dp)
@@ -529,7 +652,6 @@ private fun MeterBar(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Gauge Fill
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -546,33 +668,5 @@ private fun MeterBar(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun WeaponPill(
-    weapon: WeaponType,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    val weaponColor = Color(weapon.colorHex)
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (isSelected) weaponColor.copy(alpha = 0.25f) else TacticalSurface.copy(alpha = 0.85f))
-            .border(1.5.dp, if (isSelected) weaponColor else TacticalBorder, RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 5.dp)
-    ) {
-        Text(
-            text = when (weapon) {
-                WeaponType.RIFLE -> "RIFLE"
-                WeaponType.SHOTGUN -> "SHOTGUN"
-                WeaponType.PLASMA -> "PLASMA"
-            },
-            color = if (isSelected) weaponColor else Color.Gray,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold
-        )
     }
 }

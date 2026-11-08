@@ -512,13 +512,13 @@ fun LobbyScreen(
                         Spacer(modifier = Modifier.height(10.dp))
 
                         Text(
-                            text = "📦 ARENA LOOTS (RESPAWNS EVERY 15s):",
+                            text = "📦 ARENA 3D LOOTS & 1-GUN RULE:",
                             color = PlasmaPurple,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "• 💚 MedKit: Heals +35 Health\n• 🛡️ Armor Vest: +50 Armor Plate\n• 📦 Ammo Crate: +30 Ammunition\n• 💥 Shotgun: High close-range burst damage\n• ⚡ Plasma Cannon: Devastating rapid energy blaster",
+                            text = "• 🔫 1-Gun Rule: Operatives carry only 1 gun at once. Walk over a weapon drop in the arena to swap!\n• 💚 Trauma Kit: Heals +35 Health\n• 🛡️ Kevlar Vest: +50 Armor Plate (66% damage absorption)\n• 📦 Military Ammo Can: +30 Ammunition\n• 💥 SPAS-12 Shotgun: 6-pellet close range devastation\n• 🎯 AWP Sniper: Precision scope with lethal single-shot power\n• ⚡ Plasma Cannon: Rapid fire neon energy blaster",
                             color = Color.LightGray,
                             fontSize = 11.sp
                         )

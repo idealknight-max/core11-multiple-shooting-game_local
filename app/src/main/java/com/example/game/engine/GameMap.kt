@@ -51,9 +51,11 @@ object GameMap {
         LootItem("loot_armor_center_1", LootType.ARMOR_PLATE, 10.5f, 9.5f),
         LootItem("loot_armor_center_2", LootType.ARMOR_PLATE, 9.5f, 10.5f),
         
-        // Mid field powerups
+        // Mid field weapon powerups
         LootItem("loot_shotgun_west", LootType.SHOTGUN_DROP, 4.5f, 9.5f),
         LootItem("loot_shotgun_east", LootType.SHOTGUN_DROP, 15.5f, 9.5f),
+        LootItem("loot_sniper_north", LootType.SNIPER_DROP, 9.5f, 2.5f),
+        LootItem("loot_sniper_south", LootType.SNIPER_DROP, 10.5f, 17.5f),
 
         // Health kits
         LootItem("loot_med_1", LootType.MEDKIT, 9.5f, 3.5f),

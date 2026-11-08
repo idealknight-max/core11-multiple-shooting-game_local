@@ -2,6 +2,7 @@ package com.example.game.model
 
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.round
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -37,40 +38,56 @@ enum class WeaponType(
     val spread: Float,
     val pellets: Int,
     val range: Float,
-    val colorHex: Long
+    val colorHex: Long,
+    val description: String
 ) {
     RIFLE(
-        displayName = "Assault Rifle",
+        displayName = "M4-A1 Rifle",
         damage = 25,
-        fireRateMs = 180L,
+        fireRateMs = 170L,
         maxClip = 30,
         maxReserve = 120,
         spread = 0.035f,
         pellets = 1,
-        range = 24f,
-        colorHex = 0xFF00E5FF
+        range = 25f,
+        colorHex = 0xFF00E5FF,
+        description = "Balanced rapid fire combat rifle"
     ),
     SHOTGUN(
-        displayName = "Tactical Shotgun",
+        displayName = "SPAS-12 Shotgun",
         damage = 18,
-        fireRateMs = 600L,
+        fireRateMs = 650L,
         maxClip = 8,
         maxReserve = 32,
         spread = 0.12f,
         pellets = 6,
         range = 14f,
-        colorHex = 0xFFFFB300
+        colorHex = 0xFFFF9100,
+        description = "Devastating close-range scatter shot"
+    ),
+    SNIPER(
+        displayName = "AWP Sniper",
+        damage = 85,
+        fireRateMs = 1100L,
+        maxClip = 5,
+        maxReserve = 20,
+        spread = 0.005f,
+        pellets = 1,
+        range = 35f,
+        colorHex = 0xFFFF3D00,
+        description = "High-precision heavy caliber rifle"
     ),
     PLASMA(
         displayName = "Plasma Cannon",
-        damage = 45,
+        damage = 48,
         fireRateMs = 320L,
         maxClip = 20,
         maxReserve = 60,
-        spread = 0.015f,
+        spread = 0.012f,
         pellets = 1,
         range = 28f,
-        colorHex = 0xFFD500F9
+        colorHex = 0xFFD500F9,
+        description = "Energy blaster with plasma bolts"
     )
 }
 
@@ -78,13 +95,15 @@ enum class LootType(
     val title: String,
     val description: String,
     val colorHex: Long,
-    val iconEmoji: String
+    val iconEmoji: String,
+    val associatedWeapon: WeaponType? = null
 ) {
-    MEDKIT("MedKit", "+35 Health", 0xFFFF2A55, "💚"),
-    ARMOR_PLATE("Armor Vest", "+50 Armor", 0xFF00E5FF, "🛡️"),
-    AMMO_BOX("Ammo Crate", "+30 Ammo", 0xFFFFB300, "📦"),
-    SHOTGUN_DROP("Shotgun", "Close-range heavy hitter", 0xFFFF9100, "💥"),
-    PLASMA_DROP("Plasma Gun", "High-energy plasma blaster", 0xFFD500F9, "⚡")
+    MEDKIT("Trauma Kit", "+35 Health", 0xFFFF2A55, "💚"),
+    ARMOR_PLATE("Kevlar Vest", "+50 Armor", 0xFF00E5FF, "🛡️"),
+    AMMO_BOX("Military Ammo Can", "+30 Ammo", 0xFFFFB300, "📦"),
+    SHOTGUN_DROP("SPAS-12 Shotgun", "High close-range firepower", 0xFFFF9100, "💥", WeaponType.SHOTGUN),
+    SNIPER_DROP("AWP Sniper", "Long-range precision scope", 0xFFFF3D00, "🎯", WeaponType.SNIPER),
+    PLASMA_DROP("Plasma Cannon", "Futuristic energy blaster", 0xFFD500F9, "⚡", WeaponType.PLASMA)
 }
 
 data class LootItem(
@@ -108,11 +127,14 @@ data class Player(
     val maxArmor: Int = 100,
     var kills: Int = 0,
     var deaths: Int = 0,
-    var weapon: WeaponType = WeaponType.RIFLE,
+    var weapon: WeaponType = WeaponType.RIFLE, // Only ONE active gun at a time!
     var ammoInClip: Int = 30,
     var reserveAmmo: Int = 90,
     var isFiring: Boolean = false,
     var isReloading: Boolean = false,
+    var isAimingDownSights: Boolean = false,
+    var isCrouching: Boolean = false,
+    var jumpOffset: Float = 0f,
     var isAlive: Boolean = true,
     val colorHex: Long = 0xFF00E5FF,
     val isBot: Boolean = false
@@ -123,7 +145,7 @@ data class Player(
         
         // Armor absorbs 66% of the damage
         if (armor > 0) {
-            val armorAbsorption = kotlin.math.round(rawDamage * 0.66f).toInt().coerceAtLeast(1)
+            val armorAbsorption = round(rawDamage * 0.66f).toInt().coerceAtLeast(1)
             val actualArmorAbsorbed = armorAbsorption.coerceAtMost(armor)
             armor -= actualArmorAbsorbed
             remainingDmg -= actualArmorAbsorbed
@@ -147,6 +169,12 @@ data class Player(
 
     fun addAmmo(amount: Int) {
         reserveAmmo = (reserveAmmo + amount).coerceAtMost(weapon.maxReserve)
+    }
+
+    fun equipNewWeapon(newWeapon: WeaponType) {
+        weapon = newWeapon
+        ammoInClip = newWeapon.maxClip
+        reserveAmmo = (newWeapon.maxReserve / 2).coerceAtLeast(newWeapon.maxClip * 2)
     }
 }
 

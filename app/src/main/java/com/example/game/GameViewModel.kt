@@ -323,6 +323,30 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun toggleAimDownSights() {
+        val player = _localPlayer.value
+        player.isAimingDownSights = !player.isAimingDownSights
+    }
+
+    fun toggleCrouch() {
+        val player = _localPlayer.value
+        player.isCrouching = !player.isCrouching
+    }
+
+    fun jump() {
+        val player = _localPlayer.value
+        if (player.jumpOffset != 0f) return
+        viewModelScope.launch {
+            val steps = 8
+            for (i in 1..steps) {
+                val progress = i / steps.toFloat()
+                player.jumpOffset = -sin(progress * Math.PI.toFloat()) * 35f
+                delay(28)
+            }
+            player.jumpOffset = 0f
+        }
+    }
+
     private fun updateLoots(dt: Float) {
         val currentLoots = _loots.value
         val player = _localPlayer.value
@@ -336,12 +360,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     changed = true
                 }
             } else if (player.isAlive) {
-                // Check if player walked over loot
                 val dist = Vector2(player.x, player.y).distanceTo(Vector2(loot.x, loot.y))
                 if (dist < 0.75f) {
-                    // Pick up loot!
                     loot.isAvailable = false
-                    loot.respawnTimerSec = 15f // 15 sec respawn
+                    loot.respawnTimerSec = 15f
                     applyLootPickup(loot.type)
                     changed = true
 
@@ -362,27 +384,30 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         when (type) {
             LootType.MEDKIT -> {
                 player.heal(35)
-                showLootAlert("💚 Picked up MedKit! (+35 HP)")
+                showLootAlert("💚 Applied Combat Trauma Kit (+35 HP)")
             }
             LootType.ARMOR_PLATE -> {
                 player.addArmor(50)
-                showLootAlert("🛡️ Picked up Heavy Armor! (+50 Shield)")
+                showLootAlert("🛡️ Equipped Tactical Kevlar Vest (+50 Armor)")
             }
             LootType.AMMO_BOX -> {
                 player.addAmmo(30)
-                showLootAlert("📦 Picked up Ammo Crate! (+30 Ammo)")
+                showLootAlert("📦 Picked up Military Ammo Can (+30 Ammo)")
             }
             LootType.SHOTGUN_DROP -> {
-                player.weapon = WeaponType.SHOTGUN
-                player.ammoInClip = WeaponType.SHOTGUN.maxClip
-                player.reserveAmmo = 24
-                showLootAlert("💥 Acquired Tactical Shotgun!")
+                val oldName = player.weapon.displayName
+                player.equipNewWeapon(WeaponType.SHOTGUN)
+                showLootAlert("💥 Equipped SPAS-12 Shotgun (Replaced $oldName)")
+            }
+            LootType.SNIPER_DROP -> {
+                val oldName = player.weapon.displayName
+                player.equipNewWeapon(WeaponType.SNIPER)
+                showLootAlert("🎯 Equipped AWP Sniper (Replaced $oldName)")
             }
             LootType.PLASMA_DROP -> {
-                player.weapon = WeaponType.PLASMA
-                player.ammoInClip = WeaponType.PLASMA.maxClip
-                player.reserveAmmo = 40
-                showLootAlert("⚡ Acquired Plasma Cannon!")
+                val oldName = player.weapon.displayName
+                player.equipNewWeapon(WeaponType.PLASMA)
+                showLootAlert("⚡ Equipped Plasma Cannon (Replaced $oldName)")
             }
         }
     }
@@ -390,7 +415,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private fun showLootAlert(msg: String) {
         _lootAlert.value = msg
         viewModelScope.launch {
-            delay(2200)
+            delay(2400)
             if (_lootAlert.value == msg) {
                 _lootAlert.value = null
             }
@@ -398,7 +423,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Shoot weapon
+     * Shoot weapon with ADS precision and recoil
      */
     fun fireWeapon() {
         val player = _localPlayer.value
@@ -416,27 +441,28 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         player.ammoInClip--
         player.isFiring = true
         _isMuzzleFlashing.value = true
-        _gunKick.value = 1f
+        _gunKick.value = if (player.isAimingDownSights) 0.5f else 1f
 
-        // Gun kick decay
         viewModelScope.launch {
-            delay(100)
+            delay(90)
             _gunKick.value = 0f
             _isMuzzleFlashing.value = false
         }
 
         // Hitscan raycast calculation
         val weapon = player.weapon
+        val spreadMultiplier = if (player.isAimingDownSights) 0.22f else 1.0f
+
         for (p in 0 until weapon.pellets) {
-            val spreadOffset = if (weapon.spread > 0) {
-                (Random.nextFloat() - 0.5f) * weapon.spread
+            val rawSpread = if (weapon == WeaponType.SNIPER && player.isAimingDownSights) 0f else weapon.spread * spreadMultiplier
+            val spreadOffset = if (rawSpread > 0) {
+                (Random.nextFloat() - 0.5f) * rawSpread
             } else 0f
             val shotAngle = player.angle + spreadOffset
 
             testShotHit(player, shotAngle, weapon)
         }
 
-        // Notify multiplayer peer
         if (_isMultiplayer.value) {
             networkManager.sendMessage("SHOOT:${player.id}:${weapon.name}:${player.x}:${player.y}:${player.angle}")
         }
