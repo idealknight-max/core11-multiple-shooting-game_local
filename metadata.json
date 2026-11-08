@@ -1,0 +1,6 @@
+{
+  "name": "Local Strike 3D",
+  "description": "3D multiplayer FPS for local Wi-Fi devices with health, armor, and dynamic loots.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
